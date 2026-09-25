@@ -40,7 +40,7 @@ describe("Test ContactManager", () => {
 
   beforeEach(
     /** @param {it.TestContext} t */ (t) => {
-      spy = t.mock.method(browser.contacts, "quickSearch");
+      spy = t.mock.method(browser.contacts, "list");
       onCreatedSpy = t.mock.method(browser.contacts.onCreated, "addListener");
       onUpdatedSpy = t.mock.method(browser.contacts.onUpdated, "addListener");
       onDeletedSpy = t.mock.method(browser.contacts.onDeleted, "addListener");
@@ -113,7 +113,24 @@ describe("Test ContactManager", () => {
     assert.equal(contact.photoURI, undefined);
 
     assert.equal(isValidColor(contact.color), true);
-    assert.equal(spy.mock.calls.length, 2);
+    // The address books are only listed once.
+    assert.equal(spy.mock.calls.length, 1);
+  });
+
+  it("should only list the local address books once for many contacts", async () => {
+    let contacts = await Promise.all(
+      ["foo@example.com", "id4@example.com", "Arch@Example.com", "x@y.com"].map(
+        (email) => contactManager.get(email)
+      )
+    );
+
+    assert.deepEqual(
+      contacts.map((c) => c.contactId),
+      ["135246", "15263748", "3216549870", undefined]
+    );
+    // The remote address book is skipped.
+    assert.equal(spy.mock.calls.length, 1);
+    assert.equal(spy.mock.calls[0].arguments[0], "ab1");
   });
 
   it("should only fetch a contact once if a fetch is already in progress", async () => {
@@ -121,6 +138,8 @@ describe("Test ContactManager", () => {
     spy.mock.mockImplementation(() => promise);
     let contactPromise = contactManager.get("foo@example.com");
     let contact2Promise = contactManager.get("foo@example.com");
+    // Let the address book listing start.
+    await new Promise((r) => setTimeout(r, 0));
     resolve([
       {
         id: "135246",
@@ -239,26 +258,20 @@ describe("Test ContactManager", () => {
 
     let listener = onCreatedSpy.mock.calls[0].arguments[0];
     listener({
+      id: "14327658",
+      type: "contact",
       properties: {
-        PrimaryEmail: "invalid@example.com",
+        PrimaryEmail: "Invalid@example.com",
+        DisplayName: "invalid name",
+        PreferDisplayName: "1",
+        PhotoURI: undefined,
       },
     });
 
-    spy.mock.mockImplementation(() => [
-      {
-        id: "14327658",
-        type: "contact",
-        properties: {
-          PrimaryEmail: "invalid@example.com",
-          SecondEmail: "bar@example.com",
-          DisplayName: "invalid name",
-          PreferDisplayName: "1",
-          PhotoURI: undefined,
-        },
-      },
-    ]);
-
     contact = await contactManager.get("invalid@example.com");
+
+    // The index is updated, rather than listing the address books again.
+    assert.equal(spy.mock.calls.length, 1);
 
     assert.equal(contact.contactId, "14327658");
     assert.equal(contact.identityId, undefined);
@@ -276,24 +289,16 @@ describe("Test ContactManager", () => {
 
     let listener = onUpdatedSpy.mock.calls[0].arguments[0];
     listener({
+      id: "135246",
+      type: "contact",
       properties: {
         PrimaryEmail: "foo@example.com",
+        SecondEmail: "baz@example.com",
+        DisplayName: "updated name",
+        PreferDisplayName: "1",
+        PhotoURI: undefined,
       },
     });
-
-    spy.mock.mockImplementation(() => [
-      {
-        id: "135246",
-        type: "contact",
-        properties: {
-          PrimaryEmail: "foo@example.com",
-          SecondEmail: "bar@example.com",
-          DisplayName: "updated name",
-          PreferDisplayName: "1",
-          PhotoURI: undefined,
-        },
-      },
-    ]);
 
     contact = await contactManager.get("foo@example.com");
 
@@ -301,6 +306,16 @@ describe("Test ContactManager", () => {
     assert.equal(contact.identityId, undefined);
     assert.equal(contact.contactName, "updated name");
     assert.equal(contact.photoURI, undefined);
+
+    // The old second email address is no longer associated with the contact.
+    contact = await contactManager.get("bar@example.com");
+    assert.equal(contact.contactId, undefined);
+
+    contact = await contactManager.get("baz@example.com");
+    assert.equal(contact.contactId, "135246");
+
+    // The index is updated, rather than listing the address books again.
+    assert.equal(spy.mock.calls.length, 1);
   });
 
   it("should update when a new contact is deleted", async () => {

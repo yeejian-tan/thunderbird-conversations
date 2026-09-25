@@ -540,108 +540,100 @@ if (!browser.runtime) {
   };
 }
 
+const STUB_CONTACTS = [
+  {
+    id: "135246",
+    type: "contact",
+    properties: {
+      PrimaryEmail: "foo@example.com",
+      SecondEmail: "bar@example.com",
+      DisplayName: "display name",
+      PreferDisplayName: "1",
+      PhotoURI: undefined,
+    },
+  },
+  {
+    id: "15263748",
+    type: "contact",
+    properties: {
+      PrimaryEmail: "id4@example.com",
+      DisplayName: "id4 card",
+      PreferDisplayName: "1",
+      PhotoURI: undefined,
+    },
+  },
+  {
+    id: "15263748",
+    type: "contact",
+    properties: {
+      PrimaryEmail: "id5@example.com",
+      SecondEmail: "id5second@example.com",
+      DisplayName: "id5 card",
+      PreferDisplayName: "1",
+      PhotoURI: undefined,
+    },
+  },
+  {
+    id: "75312468",
+    type: "contact",
+    properties: {
+      PrimaryEmail: "extra@example.com",
+      DisplayName: "extra card",
+      PreferDisplayName: "0",
+      PhotoURI: "https://example.com/fake",
+    },
+    readOnly: true,
+  },
+  {
+    id: "1357924680",
+    type: "contact",
+    properties: {
+      PrimaryEmail: "search@example.com",
+      SecondEmail: "second@example.com",
+      DisplayName: "search name",
+      PreferDisplayName: "1",
+      PhotoURI: undefined,
+    },
+  },
+  {
+    id: "3216549870",
+    type: "contact",
+    properties: {
+      PrimaryEmail: "arch@example.com",
+      SecondEmail: "other@example.com",
+      DisplayName: "arch test",
+      PreferDisplayName: "1",
+      PhotoURI: undefined,
+    },
+  },
+  {
+    id: "9753124680",
+    type: "contact",
+    properties: {
+      PrimaryEmail: "another@example.com",
+      SecondEmail: "cond@example.com",
+      DisplayName: "cond test",
+      PreferDisplayName: "1",
+      PhotoURI: undefined,
+    },
+  },
+];
+
+if (!browser.addressBooks) {
+  browser.addressBooks = {
+    async list() {
+      return [
+        { id: "ab1", type: "addressBook", name: "Personal", remote: false },
+        { id: "ab2", type: "addressBook", name: "LDAP", remote: true },
+      ];
+    },
+  };
+}
+
 if (!browser.contacts) {
   browser.contacts = {
-    async quickSearch(queryInfo) {
-      if (
-        ["foo@example.com", "bar@example.com"].includes(queryInfo.searchString)
-      ) {
-        return [
-          {
-            id: "135246",
-            type: "contact",
-            properties: {
-              PrimaryEmail: "foo@example.com",
-              SecondEmail: "bar@example.com",
-              DisplayName: "display name",
-              PreferDisplayName: "1",
-              PhotoURI: undefined,
-            },
-          },
-        ];
-      } else if (queryInfo.searchString == "id4@example.com") {
-        return [
-          {
-            id: "15263748",
-            type: "contact",
-            properties: {
-              PrimaryEmail: "id4@example.com",
-              DisplayName: "id4 card",
-              PreferDisplayName: "1",
-              PhotoURI: undefined,
-            },
-          },
-        ];
-      } else if (queryInfo.searchString == "id5@example.com") {
-        return [
-          {
-            id: "15263748",
-            type: "contact",
-            properties: {
-              PrimaryEmail: "id5@example.com",
-              SecondEmail: "id5second@example.com",
-              DisplayName: "id5 card",
-              PreferDisplayName: "1",
-              PhotoURI: undefined,
-            },
-          },
-        ];
-      } else if (queryInfo.searchString == "extra@example.com") {
-        return [
-          {
-            id: "75312468",
-            type: "contact",
-            properties: {
-              PrimaryEmail: "extra@example.com",
-              DisplayName: "extra card",
-              PreferDisplayName: "0",
-              PhotoURI: "https://example.com/fake",
-            },
-            readOnly: true,
-          },
-        ];
-      } else if (
-        ["arch@example.com", "cond@example.com"].includes(
-          queryInfo.searchString
-        )
-      ) {
-        return [
-          {
-            id: "1357924680",
-            type: "contact",
-            properties: {
-              PrimaryEmail: "search@example.com",
-              SecondEmail: "second@example.com",
-              DisplayName: "search name",
-              PreferDisplayName: "1",
-              PhotoURI: undefined,
-            },
-          },
-          {
-            id: "3216549870",
-            type: "contact",
-            properties: {
-              PrimaryEmail: "arch@example.com",
-              SecondEmail: "other@example.com",
-              DisplayName: "arch test",
-              PreferDisplayName: "1",
-              PhotoURI: undefined,
-            },
-          },
-          {
-            id: "9753124680",
-            type: "contact",
-            properties: {
-              PrimaryEmail: "another@example.com",
-              SecondEmail: "cond@example.com",
-              DisplayName: "cond test",
-              PreferDisplayName: "1",
-              PhotoURI: undefined,
-            },
-          },
-        ];
-      }
-      return [];
+    async list(parentId) {
+      return parentId == "ab1" ? STUB_CONTACTS : [];
     },
     onCreated: {
       addListener() {},

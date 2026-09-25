@@ -134,6 +134,13 @@ export class ContactManager {
      * @type {Promise<Map<string, string>> | undefined}
      */
     this._identityEmails = undefined;
+    /**
+     * A promise for the index of the local address books. The key is the
+     * lower-cased email address, the value is the first matching card.
+     *
+     * @type {Promise<Map<string, ContactNode>> | undefined}
+     */
+    this._contactIndex = undefined;
 
     browser.contacts.onCreated.addListener(this._contactCreated.bind(this));
     browser.contacts.onUpdated.addListener(this._contactUpdated.bind(this));
@@ -222,26 +229,10 @@ export class ContactManager {
    *   The email address to fetch contact details for.
    */
   async _fetchContactDetails(email) {
-    let matchingCards = [];
-    // See #1492. This attempts to catch errors from quickSearch that can
-    // happen if there are broken address books.
-    try {
-      matchingCards = await browser.contacts.quickSearch({
-        includeRemote: false,
-        searchString: email,
-      });
-    } catch (ex) {
-      console.error(ex);
-    }
-
-    // The search is only a quick search, therefore it might match email
-    // addresses with prefixes or suffixes. Hence, we refine the matching cards
-    // further here.
-    matchingCards = matchingCards.filter(
-      (c) =>
-        c.properties.PrimaryEmail?.toLocaleLowerCase() == email ||
-        c.properties.SecondEmail?.toLocaleLowerCase() == email
-    );
+    let contactIndex = await this._getContactIndex();
+    let matchingCards = contactIndex.has(email)
+      ? [contactIndex.get(email)]
+      : [];
 
     let contactId = undefined;
     /**
@@ -301,6 +292,102 @@ export class ContactManager {
   }
 
   /**
+   * Gets and caches an index of the contacts in the local address books.
+   *
+   * Searching the address books is expensive, as each search goes through
+   * every card, and Thunderbird performs the searches one after the other. For
+   * messages with many recipients, it is much faster to go through the address
+   * books once.
+   */
+  _getContactIndex() {
+    // Cache the promise, so that concurrent callers share a single look-up.
+    this._contactIndex ??= this._fetchContactIndex();
+    return this._contactIndex;
+  }
+
+  /**
+   * Builds the index of the contacts in the local address books.
+   */
+  async _fetchContactIndex() {
+    /**
+     * @type {Map<string, ContactNode>}
+     */
+    let index = new Map();
+    let addressBooks = await browser.addressBooks.list().catch((ex) => {
+      console.error(ex);
+      return [];
+    });
+    for (let addressBook of addressBooks) {
+      if (addressBook.remote) {
+        continue;
+      }
+      let contacts = [];
+      // See #1492. This attempts to catch errors that can happen if there are
+      // broken address books.
+      try {
+        contacts = await browser.contacts.list(addressBook.id);
+      } catch (ex) {
+        console.error(ex);
+      }
+      for (let contact of contacts) {
+        this._addToContactIndex(index, contact);
+      }
+    }
+    return index;
+  }
+
+  /**
+   * Adds a contact to the index of the local address books.
+   *
+   * @param {Map<string, ContactNode>} index
+   * @param {ContactNode} contact
+   */
+  _addToContactIndex(index, contact) {
+    if (contact.remote) {
+      return;
+    }
+    for (let contactEmail of [
+      contact.properties.PrimaryEmail,
+      contact.properties.SecondEmail,
+    ]) {
+      let key = contactEmail?.toLocaleLowerCase();
+      // Only keep the first card found for an email address.
+      if (key && !index.has(key)) {
+        index.set(key, contact);
+      }
+    }
+  }
+
+  /**
+   * Removes a contact from the index of the local address books.
+   *
+   * @param {Map<string, ContactNode>} index
+   * @param {string} id
+   *   The id of the contact to remove.
+   */
+  _removeFromContactIndex(index, id) {
+    for (let [key, value] of index.entries()) {
+      if (value.id == id) {
+        index.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Removes cached details for a contact.
+   *
+   * @param {string} id
+   *   The id of the contact.
+   */
+  _removeFromCache(id) {
+    for (let [key, value] of this._cache.entries()) {
+      if (value.contactId == id) {
+        this._cache.delete(key);
+      }
+    }
+  }
+
+  /**
    * Gets and caches the email addresses from the user's identities.
    *
    * Currently there is no refresh when account changes are made - Thunderbird
@@ -350,8 +437,14 @@ export class ContactManager {
    *   The added contact.
    */
   _contactCreated(node) {
-    this._cache.delete(node.properties.PrimaryEmail);
-    this._cache.delete(node.properties.SecondEmail);
+    // Update the index rather than rebuilding it, as rebuilding is expensive,
+    // and contacts get added whenever collected addresses are added.
+    this._contactIndex = this._contactIndex?.then((index) => {
+      this._addToContactIndex(index, node);
+      return index;
+    });
+    this._cache.delete(node.properties.PrimaryEmail?.toLocaleLowerCase());
+    this._cache.delete(node.properties.SecondEmail?.toLocaleLowerCase());
   }
 
   /**
@@ -361,8 +454,16 @@ export class ContactManager {
    *   The updated contact.
    */
   _contactUpdated(node) {
-    this._cache.delete(node.properties.PrimaryEmail);
-    this._cache.delete(node.properties.SecondEmail);
+    this._contactIndex = this._contactIndex?.then((index) => {
+      this._removeFromContactIndex(index, node.id);
+      this._addToContactIndex(index, node);
+      return index;
+    });
+    // The email addresses may have changed, so also clear the cache for the
+    // previous addresses.
+    this._removeFromCache(node.id);
+    this._cache.delete(node.properties.PrimaryEmail?.toLocaleLowerCase());
+    this._cache.delete(node.properties.SecondEmail?.toLocaleLowerCase());
   }
 
   /**
@@ -374,11 +475,11 @@ export class ContactManager {
    *   The id of the contact that was deleted.
    */
   _contactDeleted(parentId, id) {
-    for (let [key, value] of this._cache.entries()) {
-      if (value.contactId == id) {
-        this._cache.delete(key);
-      }
-    }
+    this._contactIndex = this._contactIndex?.then((index) => {
+      this._removeFromContactIndex(index, id);
+      return index;
+    });
+    this._removeFromCache(id);
   }
 
   /**
