@@ -516,16 +516,18 @@ export class MessageEnricher {
     //   };
     // });
 
+    // Attachments are only displayed for expanded messages, so defer fetching
+    // them until the message is expanded. Streaming every message of the
+    // conversation up-front can block the whole conversation from displaying,
+    // e.g. for large threads on online IMAP folders.
     await this._addDetailsFromAttachments(
       {
-        attachments: await browser.conversations.getLateAttachments(
-          message.id,
-          false
-        ),
+        attachments: [],
         initialPosition: message.initialPosition,
       },
       msg
     );
+    msg.needsLateAttachments = true;
   }
 
   /**
