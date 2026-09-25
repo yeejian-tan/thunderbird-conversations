@@ -557,12 +557,12 @@ export class MessageEnricher {
       if (!item?.length) {
         continue;
       }
-      for (let i of item) {
-        let data = i
-          ? await browser.messengerUtilities.parseMailboxString(i)
-          : [];
-        msg.parsedLines[line] = msg.parsedLines[line].concat(data);
-      }
+      let data = await Promise.all(
+        item.map((i) =>
+          i ? browser.messengerUtilities.parseMailboxString(i) : []
+        )
+      );
+      msg.parsedLines[line] = data.flat();
     }
 
     if (msg.parsedLines.alternativeSender?.length) {
