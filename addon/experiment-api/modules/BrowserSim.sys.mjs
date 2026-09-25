@@ -26,6 +26,17 @@ const SUPPORTED_APIS_NO_EVENTS = [
   "_background",
 ];
 
+// These functions of the APIs above are read-only, and cope with optional
+// parameters not being set. They are called directly in the parent process,
+// rather than being proxied via the background script, as that involves
+// several copies of the arguments and results across processes. This is
+// expensive for the large message bodies and the many calls made when loading
+// a conversation.
+const DIRECT_API_FUNCTIONS = {
+  messages: ["getFull"],
+  messengerUtilities: ["convertToPlainText", "parseMailboxString"],
+};
+
 const SUPPORTED_BASE_APIS = [
   ...SUPPORTED_APIS_NO_EVENTS,
   "convCalendar",
@@ -105,8 +116,23 @@ class _BrowserSim {
         );
         browser[apiName] = this.#implementation(extension, api, apiName);
       } else if (SUPPORTED_APIS_NO_EVENTS.includes(apiName)) {
+        const directFunctions = DIRECT_API_FUNCTIONS[apiName] ?? [];
+        const directImpl = directFunctions.length
+          ? this.#implementation(
+              extension,
+              await extension.apiManager.asyncGetAPI(
+                apiName,
+                extension,
+                "addon_parent"
+              ),
+              apiName
+            )
+          : null;
         const subApiHandler = {
           get(target, prop) {
+            if (directFunctions.includes(prop)) {
+              return directImpl[prop].bind(directImpl);
+            }
             if (apiName == "messages" && prop == "tags") {
               return new Proxy(
                 {},
