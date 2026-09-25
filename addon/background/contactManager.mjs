@@ -128,6 +128,12 @@ export class ContactManager {
      * @type {Map<string, Promise>}
      */
     this._activeFetches = new Map();
+    /**
+     * A promise for the map of identity email addresses to identity ids.
+     *
+     * @type {Promise<Map<string, string>> | undefined}
+     */
+    this._identityEmails = undefined;
 
     browser.contacts.onCreated.addListener(this._contactCreated.bind(this));
     browser.contacts.onUpdated.addListener(this._contactUpdated.bind(this));
@@ -300,11 +306,16 @@ export class ContactManager {
    * Currently there is no refresh when account changes are made - Thunderbird
    * will need to be restart.
    */
-  async _getIdentityEmails() {
-    if (this._identityEmails) {
-      return this._identityEmails;
-    }
+  _getIdentityEmails() {
+    // Cache the promise, so that concurrent callers share a single look-up.
+    this._identityEmails ??= this._fetchIdentityEmails();
+    return this._identityEmails;
+  }
 
+  /**
+   * Fetches the email addresses from the user's identities.
+   */
+  async _fetchIdentityEmails() {
     /**
      * @type {Map<string, string>}
      */
@@ -329,7 +340,6 @@ export class ContactManager {
         }
       }
     }
-    this._identityEmails = emails;
     return emails;
   }
 
