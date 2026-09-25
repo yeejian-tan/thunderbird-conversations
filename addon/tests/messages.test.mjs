@@ -731,6 +731,69 @@ Updating`,
 
       assert.equal(msgs[0].snippet, "short snippet");
     });
+
+    it("Only converts the start of large html bodies for the snippet", async (t) => {
+      let body = "<p>" + "x".repeat(100 * 1024) + "</p>";
+      t.mock.method(browser.messages, "getFull").mock.mockImplementation(() => {
+        return {
+          headers: [],
+          parts: [{ contentType: "text/html", body }],
+        };
+      });
+      let convertSpy = t.mock.method(
+        browser.messengerUtilities,
+        "convertToPlainText"
+      );
+      convertSpy.mock.mockImplementation(async (html) => html);
+
+      let fakeMsg = createFakeData(
+        { snippet: "should not be used", getFullRequired: true },
+        fakeMessageHeaderData
+      );
+
+      let msgs = await messageEnricher.enrich(
+        [fakeMsg],
+        createFakeSummaryData(),
+        [fakeMessageHeaderData.size - 1]
+      );
+
+      assert.equal(convertSpy.mock.calls.length, 1);
+      assert.ok(convertSpy.mock.calls[0].arguments[0].length < body.length);
+      assert.equal(msgs[0].snippet, body.substring(0, 700));
+    });
+
+    it("Converts more of the html body if the snippet is too short", async (t) => {
+      let body =
+        "<style>" + "a{}".repeat(10 * 1024) + "</style><p>the text</p>";
+      t.mock.method(browser.messages, "getFull").mock.mockImplementation(() => {
+        return {
+          headers: [],
+          parts: [{ contentType: "text/html", body }],
+        };
+      });
+      let convertSpy = t.mock.method(
+        browser.messengerUtilities,
+        "convertToPlainText"
+      );
+      convertSpy.mock.mockImplementation(async (html) =>
+        html.includes("</style>") ? html.split("</style>")[1] : ""
+      );
+
+      let fakeMsg = createFakeData(
+        { snippet: "should not be used", getFullRequired: true },
+        fakeMessageHeaderData
+      );
+
+      let msgs = await messageEnricher.enrich(
+        [fakeMsg],
+        createFakeSummaryData(),
+        [fakeMessageHeaderData.size - 1]
+      );
+
+      assert.equal(convertSpy.mock.calls.length, 2);
+      assert.equal(convertSpy.mock.calls[1].arguments[0], body);
+      assert.equal(msgs[0].snippet, "<p>the text</p>");
+    });
   });
 
   describe("Dates", () => {

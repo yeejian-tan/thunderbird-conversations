@@ -15,6 +15,8 @@ const kExpandAuto = 4;
 // This is high because we want enough snippet to extract relevant data from
 // bugzilla snippets.
 const kSnippetLength = 700;
+// The initial amount of HTML to convert to plain text when generating a snippet.
+const kSnippetHtmlLength = 16 * 1024;
 
 /**
  * @typedef FullMessageDetails
@@ -493,9 +495,7 @@ export class MessageEnricher {
 
     let info = checkPart(fullMsg.parts[0]);
     if (info.html && info.body) {
-      msg.snippet = await browser.messengerUtilities.convertToPlainText(
-        info.body
-      );
+      msg.snippet = await this._htmlToSnippet(info.body);
     } else {
       msg.snippet = info.body ?? "";
     }
@@ -528,6 +528,31 @@ export class MessageEnricher {
       msg
     );
     msg.needsLateAttachments = true;
+  }
+
+  /**
+   * Converts the start of an HTML body to plain text for use as a snippet.
+   *
+   * Converting the whole body is expensive for large messages, e.g. ones that
+   * quote a long thread, so only convert as much as is needed for the snippet.
+   *
+   * @param {string} html
+   *   The HTML body of the message.
+   * @returns {Promise<string>}
+   */
+  async _htmlToSnippet(html) {
+    let htmlLength = kSnippetHtmlLength;
+    while (true) {
+      let text = await browser.messengerUtilities.convertToPlainText(
+        html.substring(0, htmlLength)
+      );
+      // The end of the converted text may be affected by where the HTML was
+      // cut, so make sure there is plenty of text before the cut.
+      if (text.length >= 2 * kSnippetLength || htmlLength >= html.length) {
+        return text;
+      }
+      htmlLength *= 4;
+    }
   }
 
   /**
